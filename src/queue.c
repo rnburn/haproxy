@@ -349,16 +349,17 @@ void process_srv_queue(struct server *s)
 		if (!pc)
 			break;
 
-		done = 1;
+		done++;
 
 		_HA_ATOMIC_INC(&s->served);
-		_HA_ATOMIC_INC(&p->served);
 
 		stream_add_srv_conn(pc->strm, s);
 		task_wakeup(pc->strm->task, TASK_WOKEN_RES);
 	}
 	HA_RWLOCK_WRUNLOCK(PROXY_LOCK,  &p->lock);
 	HA_SPIN_UNLOCK(SERVER_LOCK, &s->lock);
+
+	_HA_ATOMIC_ADD(&p->served, done);
 
 	if (done && p->lbprm.server_take_conn)
 		p->lbprm.server_take_conn(s, 0);
