@@ -5,14 +5,56 @@ const char *http_rescap_flt_id = "response capture filter";
 
 struct flt_ops rescap_ops;
 
+struct rescap_state {
+};
+
+DECLARE_STATIC_POOL(pool_head_rescap_state, "rescap_state", sizeof(struct rescap_state));
+
+/***********************************************************************/
+static int
+rescap_strm_init(struct stream *s, struct filter *filter)
+{
+	struct rescap_state *st;
+
+	st = pool_alloc(pool_head_rescap_state);
+	if (st == NULL)
+		return -1;
+
+#if 0
+	st->comp_algo = NULL;
+	st->comp_ctx  = NULL;
+	st->flags     = 0;
+	filter->ctx   = st;
+
+	/* Register post-analyzer on AN_RES_WAIT_HTTP because we need to
+	 * analyze response headers before http-response rules execution
+	 * to be sure we can use res.comp and res.comp_algo sample
+	 * fetches */
+	filter->post_analyzers |= AN_RES_WAIT_HTTP;
+#endif
+	return 1;
+}
+
+static void
+rescap_strm_deinit(struct stream *s, struct filter *filter)
+{
+	struct rescap_state *st = filter->ctx;
+
+	if (!st)
+		return;
+
+	pool_free(pool_head_rescap_state, st);
+	filter->ctx = NULL;
+}
+
 /***********************************************************************/
 struct flt_ops rescap_ops = {
 	/* .init              = comp_flt_init, */
 	/* .init_per_thread   = comp_flt_init_per_thread, */
 	/* .deinit_per_thread = comp_flt_deinit_per_thread, */
 
-	/* .attach = comp_strm_init, */
-	/* .detach = comp_strm_deinit, */
+	.attach = rescap_strm_init,
+	.detach = rescap_strm_deinit,
 
 	/* .channel_post_analyze  = comp_http_post_analyze, */
 
