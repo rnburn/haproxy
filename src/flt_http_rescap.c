@@ -1,11 +1,15 @@
 
 #include <haproxy/filters.h>
+#include <haproxy/http_htx.h>
+#include <haproxy/h1.h>
 
 const char *http_rescap_flt_id = "response capture filter";
 
 struct flt_ops rescap_ops;
 
 struct rescap_state {
+  char* response_data;
+  int response_len;
 };
 
 DECLARE_STATIC_POOL(pool_head_rescap_state, "rescap_state", sizeof(struct rescap_state));
@@ -20,6 +24,8 @@ rescap_strm_init(struct stream *s, struct filter *filter)
 	if (st == NULL)
 		return -1;
 
+  st->response_data = NULL;
+  st->response_len = 0;
 #if 0
 	st->comp_algo = NULL;
 	st->comp_ctx  = NULL;
@@ -42,9 +48,58 @@ rescap_strm_deinit(struct stream *s, struct filter *filter)
 
 	if (!st)
 		return;
-
+  
+  if (st->response_data)
+    free(st->response_data);
 	pool_free(pool_head_rescap_state, st);
 	filter->ctx = NULL;
+}
+
+static int
+rescap_http_headers(struct stream *s, struct filter *filter, struct http_msg *msg)
+{
+	struct rescap_state *st = filter->ctx;
+  (void)st;
+
+  if (msg->chn->flags & CF_ISRESP)
+    return 1;
+
+  struct htx* htx;
+  struct ist hdr;
+  struct http_hdr_ctx ctx;
+
+  hdr = ist("Content-Length");
+  if (!http_find_header(htx, hdr, &ctx, 0))
+    return 1;
+
+	struct h1m h1m;
+  int ret;
+	ret = h1_parse_cont_len_header(&h1m, &ctx.value);
+  if (ret < 0)
+    return 1;
+
+  st->response_data = calloc(1, h1m.curr_len);
+  st->response_len = h1m.curr_len;
+
+	return 1;
+}
+
+static int
+rescap_http_payload(struct stream *s, struct filter *filter, struct http_msg *msg,
+		  unsigned int offset, unsigned int len)
+{
+	struct rescap_state *st = filter->ctx;
+  (void)st;
+  return 1;
+}
+
+static int
+rescap_http_end(struct stream *s, struct filter *filter,
+	      struct http_msg *msg)
+{
+	struct comp_state *st = filter->ctx;
+  (void)st;
+  return 1;
 }
 
 /***********************************************************************/
@@ -58,9 +113,9 @@ struct flt_ops rescap_ops = {
 
 	/* .channel_post_analyze  = comp_http_post_analyze, */
 
-	/* .http_headers          = comp_http_headers, */
-	/* .http_payload          = comp_http_payload, */
-	/* .http_end              = comp_http_end, */
+	.http_headers          = rescap_http_headers,
+	.http_payload          = rescap_http_payload,
+	.http_end              = rescap_http_end,
 };
 
 static int
