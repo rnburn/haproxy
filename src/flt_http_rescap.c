@@ -1,3 +1,4 @@
+#include <stdio.h>
 
 #include <haproxy/filters.h>
 #include <haproxy/http_htx.h>
@@ -16,8 +17,16 @@ DECLARE_STATIC_POOL(pool_head_rescap_state, "rescap_state", sizeof(struct rescap
 
 /***********************************************************************/
 static int
+rescap_flt_init(struct proxy *px, struct flt_conf *fconf)
+{
+	fconf->flags |= FLT_CFG_FL_HTX;
+	return 0;
+}
+
+static int
 rescap_strm_init(struct stream *s, struct filter *filter)
 {
+  printf("nuf\n");
 	struct rescap_state *st;
 
 	st = pool_alloc(pool_head_rescap_state);
@@ -26,6 +35,8 @@ rescap_strm_init(struct stream *s, struct filter *filter)
 
   st->response_data = NULL;
   st->response_len = 0;
+
+  filter->ctx = st;
 #if 0
 	st->comp_algo = NULL;
 	st->comp_ctx  = NULL;
@@ -58,17 +69,20 @@ rescap_strm_deinit(struct stream *s, struct filter *filter)
 static int
 rescap_http_headers(struct stream *s, struct filter *filter, struct http_msg *msg)
 {
+  printf("arf\n");
 	struct rescap_state *st = filter->ctx;
   (void)st;
 
-  if (msg->chn->flags & CF_ISRESP)
+  if (!(msg->chn->flags & CF_ISRESP))
     return 1;
 
-  struct htx* htx;
+	struct htx *htx = htxbuf(&msg->chn->buf);
   struct ist hdr;
   struct http_hdr_ctx ctx;
-
+  
+  printf("finding header\n");
   hdr = ist("Content-Length");
+  ctx.blk = NULL;
   if (!http_find_header(htx, hdr, &ctx, 0))
     return 1;
 
@@ -78,8 +92,10 @@ rescap_http_headers(struct stream *s, struct filter *filter, struct http_msg *ms
   if (ret < 0)
     return 1;
 
+  printf("content-length: %llu\n", h1m.curr_len);
   st->response_data = calloc(1, h1m.curr_len);
   st->response_len = h1m.curr_len;
+  printf("nuf\n");
 
 	return 1;
 }
@@ -104,7 +120,7 @@ rescap_http_end(struct stream *s, struct filter *filter,
 
 /***********************************************************************/
 struct flt_ops rescap_ops = {
-	/* .init              = comp_flt_init, */
+	.init              = rescap_flt_init,
 	/* .init_per_thread   = comp_flt_init_per_thread, */
 	/* .deinit_per_thread = comp_flt_deinit_per_thread, */
 
@@ -122,6 +138,7 @@ static int
 parse_http_rescap_flt(char **args, int *cur_arg, struct proxy *px,
                     struct flt_conf *fconf, char **err, void *private)
 {
+  printf("hrrrr\n");
 	/* struct flt_conf *fc, *back; */
 
 	/* list_for_each_entry_safe(fc, back, &px->filter_configs, list) { */
