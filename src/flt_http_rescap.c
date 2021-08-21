@@ -86,9 +86,12 @@ rescap_http_headers(struct stream *s, struct filter *filter, struct http_msg *ms
   if (!http_find_header(htx, hdr, &ctx, 0))
     return 1;
 
+  printf("content-length found\n");
 	struct h1m h1m;
+	h1m_init_res(&h1m);
   int ret;
 	ret = h1_parse_cont_len_header(&h1m, &ctx.value);
+  printf("parse cont_len rcode=%d\n", ret);
   if (ret < 0)
     return 1;
 
@@ -96,6 +99,8 @@ rescap_http_headers(struct stream *s, struct filter *filter, struct http_msg *ms
   st->response_data = calloc(1, h1m.curr_len);
   st->response_len = h1m.curr_len;
   printf("nuf\n");
+
+  register_data_filter(s, msg->chn, filter);
 
 	return 1;
 }
@@ -106,7 +111,8 @@ rescap_http_payload(struct stream *s, struct filter *filter, struct http_msg *ms
 {
 	struct rescap_state *st = filter->ctx;
   (void)st;
-  return 1;
+  printf("woof: %u %u\n", offset, len);
+  return len;
 }
 
 static int
@@ -115,6 +121,7 @@ rescap_http_end(struct stream *s, struct filter *filter,
 {
 	struct comp_state *st = filter->ctx;
   (void)st;
+  printf("http-end\n");
   return 1;
 }
 
