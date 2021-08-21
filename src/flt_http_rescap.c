@@ -110,6 +110,30 @@ rescap_http_payload(struct stream *s, struct filter *filter, struct http_msg *ms
 		  unsigned int offset, unsigned int len)
 {
 	struct rescap_state *st = filter->ctx;
+  if (!(msg->chn->flags & CF_ISRESP))
+    return 1;
+  struct htx *htx = htxbuf(&msg->chn->buf);
+  struct htx_ret htxret = htx_find_offset(htx, offset);
+
+  struct htx_blk *blk;
+  blk = htxret.blk;
+	offset = htxret.ret;
+  for (; blk; blk = htx_get_next_blk(htx, blk)) {
+    enum htx_blk_type type = htx_get_blk_type(blk);
+    if (type == HTX_BLK_UNUSED)
+      continue;
+    else if (type == HTX_BLK_DATA) {
+		    struct ist v;
+				v = htx_get_blk_value(htx, blk);
+				v = istadv(v, offset);
+				if (v.len > len) {
+					v.len = len;
+				}
+        printf("data: %.*s\n", (int)v.len, v.ptr);
+    }
+    else
+      break;
+  }
   (void)st;
   printf("woof: %u %u\n", offset, len);
   return len;
