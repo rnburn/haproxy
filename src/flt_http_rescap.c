@@ -10,12 +10,23 @@ struct flt_ops rescap_ops;
 
 struct rescap_state {
   char* response_data;
+  int offset;
   int response_len;
 };
 
 DECLARE_STATIC_POOL(pool_head_rescap_state, "rescap_state", sizeof(struct rescap_state));
 
 /***********************************************************************/
+static void copy_data(struct rescap_state* st, void* data, int len) {
+  int n = st->response_len - st->offset;
+  if (len < n) {
+    n = len;
+  }
+  char* out = st->response_data + st->offset;
+  memcpy(out, data, n);
+  st->offset += n;
+}
+
 static int
 rescap_flt_init(struct proxy *px, struct flt_conf *fconf)
 {
@@ -34,6 +45,7 @@ rescap_strm_init(struct stream *s, struct filter *filter)
 		return -1;
 
   st->response_data = NULL;
+  st->offset = 0;
   st->response_len = 0;
 
   filter->ctx = st;
@@ -129,7 +141,7 @@ rescap_http_payload(struct stream *s, struct filter *filter, struct http_msg *ms
 				if (v.len > len) {
 					v.len = len;
 				}
-        printf("data: %.*s\n", (int)v.len, v.ptr);
+        copy_data(st, v.ptr, (int)v.len);
     }
     else
       break;
@@ -143,9 +155,10 @@ static int
 rescap_http_end(struct stream *s, struct filter *filter,
 	      struct http_msg *msg)
 {
-	struct comp_state *st = filter->ctx;
+	struct rescap_state *st = filter->ctx;
   (void)st;
   printf("http-end\n");
+  printf("data: %.*s\n", st->offset, st->response_data);
   return 1;
 }
 
