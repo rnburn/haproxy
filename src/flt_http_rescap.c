@@ -1,8 +1,9 @@
-#include <stdio.h>
-
 #include <haproxy/filters.h>
-#include <haproxy/http_htx.h>
 #include <haproxy/h1.h>
+#include <haproxy/http_htx.h>
+#include <haproxy/sample.h>
+#include <haproxy/vars.h>
+#include <stdio.h>
 
 const char *http_rescap_flt_id = "response capture filter";
 
@@ -49,18 +50,7 @@ rescap_strm_init(struct stream *s, struct filter *filter)
   st->response_len = 0;
 
   filter->ctx = st;
-#if 0
-	st->comp_algo = NULL;
-	st->comp_ctx  = NULL;
-	st->flags     = 0;
-	filter->ctx   = st;
 
-	/* Register post-analyzer on AN_RES_WAIT_HTTP because we need to
-	 * analyze response headers before http-response rules execution
-	 * to be sure we can use res.comp and res.comp_algo sample
-	 * fetches */
-	filter->post_analyzers |= AN_RES_WAIT_HTTP;
-#endif
 	return 1;
 }
 
@@ -159,6 +149,19 @@ rescap_http_end(struct stream *s, struct filter *filter,
   (void)st;
   printf("http-end\n");
   printf("data: %.*s\n", st->offset, st->response_data);
+
+  const char* varname = "sess.rescap.response";
+  size_t varlen = strlen(varname);
+	struct sample smp;
+	memset(&smp, 0, sizeof(smp));
+	smp_set_owner(&smp, s->be, s->sess, s, SMP_OPT_FINAL);
+
+  smp.data.u.str.area = st->response_data;
+  smp.data.u.str.data = st->offset;
+  smp.data.type = SMP_T_BIN;
+
+  vars_set_by_name(varname, varlen, &smp);
+
   return 1;
 }
 
