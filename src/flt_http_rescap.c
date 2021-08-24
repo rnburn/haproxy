@@ -11,21 +11,21 @@ struct flt_ops rescap_ops;
 
 struct rescap_state {
   char* response_data;
-  int offset;
-  int response_len;
+  int size;
+  int content_length;
 };
 
 DECLARE_STATIC_POOL(pool_head_rescap_state, "rescap_state", sizeof(struct rescap_state));
 
 /***********************************************************************/
 static void copy_data(struct rescap_state* st, void* data, int len) {
-  int n = st->response_len - st->offset;
+  int n = st->content_length - st->size;
   if (len < n) {
     n = len;
   }
-  char* out = st->response_data + st->offset;
+  char* out = st->response_data + st->size;
   memcpy(out, data, n);
-  st->offset += n;
+  st->size += n;
 }
 
 static int
@@ -34,6 +34,7 @@ rescap_flt_init(struct proxy *px, struct flt_conf *fconf)
 	fconf->flags |= FLT_CFG_FL_HTX;
 	return 0;
 }
+
 
 static int
 rescap_strm_init(struct stream *s, struct filter *filter)
@@ -46,8 +47,8 @@ rescap_strm_init(struct stream *s, struct filter *filter)
 		return -1;
 
   st->response_data = NULL;
-  st->offset = 0;
-  st->response_len = 0;
+  st->size = 0;
+  st->content_length = 0;
 
   filter->ctx = st;
 
@@ -71,7 +72,6 @@ rescap_strm_deinit(struct stream *s, struct filter *filter)
 static int
 rescap_http_headers(struct stream *s, struct filter *filter, struct http_msg *msg)
 {
-  printf("arf\n");
 	struct rescap_state *st = filter->ctx;
   (void)st;
 
@@ -82,25 +82,23 @@ rescap_http_headers(struct stream *s, struct filter *filter, struct http_msg *ms
   struct ist hdr;
   struct http_hdr_ctx ctx;
   
-  printf("finding header\n");
   hdr = ist("Content-Length");
   ctx.blk = NULL;
   if (!http_find_header(htx, hdr, &ctx, 0))
     return 1;
 
-  printf("content-length found\n");
 	struct h1m h1m;
 	h1m_init_res(&h1m);
   int ret;
 	ret = h1_parse_cont_len_header(&h1m, &ctx.value);
-  printf("parse cont_len rcode=%d\n", ret);
   if (ret < 0)
     return 1;
 
-  printf("content-length: %llu\n", h1m.curr_len);
+  // Allocate a buffer to hold the captured response and
+  // configure the filter to intercept the response data
+  printf("rescap content-length: %llu\n", h1m.curr_len);
   st->response_data = calloc(1, h1m.curr_len);
-  st->response_len = h1m.curr_len;
-  printf("nuf\n");
+  st->content_length = h1m.curr_len;
 
   register_data_filter(s, msg->chn, filter);
 
@@ -113,7 +111,7 @@ rescap_http_payload(struct stream *s, struct filter *filter, struct http_msg *ms
 {
 	struct rescap_state *st = filter->ctx;
   if (!(msg->chn->flags & CF_ISRESP))
-    return 1;
+    return len;
   struct htx *htx = htxbuf(&msg->chn->buf);
   struct htx_ret htxret = htx_find_offset(htx, offset);
 
@@ -136,8 +134,6 @@ rescap_http_payload(struct stream *s, struct filter *filter, struct http_msg *ms
     else
       break;
   }
-  (void)st;
-  printf("woof: %u %u\n", offset, len);
   return len;
 }
 
@@ -145,22 +141,16 @@ static int
 rescap_http_end(struct stream *s, struct filter *filter,
 	      struct http_msg *msg)
 {
+  // At this point, we will have buffered the full response.
+  // Now, we need to forward it to our agent. Ideally, we would do 
+  // this by reusing haproxy's internal APIs similar to what
+  // https://github.com/haproxytech/haproxy-lua-http
+  // does. 
+  //
+  // For now, we'll just print out the buffer to verify that it's 
+  // captured.
 	struct rescap_state *st = filter->ctx;
-  (void)st;
-  printf("http-end\n");
-  printf("data: %.*s\n", st->offset, st->response_data);
-
-  const char* varname = "sess.rescap.response";
-  size_t varlen = strlen(varname);
-	struct sample smp;
-	memset(&smp, 0, sizeof(smp));
-	smp_set_owner(&smp, s->be, s->sess, s, SMP_OPT_FINAL);
-
-  smp.data.u.str.area = st->response_data;
-  smp.data.u.str.data = st->offset;
-  smp.data.type = SMP_T_BIN;
-
-  vars_set_by_name(varname, varlen, &smp);
+  printf("rescap data: %.*s\n", st->size, st->response_data);
 
   return 1;
 }
@@ -174,7 +164,6 @@ struct flt_ops rescap_ops = {
 	.attach = rescap_strm_init,
 	.detach = rescap_strm_deinit,
 
-	/* .channel_post_analyze  = comp_http_post_analyze, */
 
 	.http_headers          = rescap_http_headers,
 	.http_payload          = rescap_http_payload,
@@ -185,16 +174,6 @@ static int
 parse_http_rescap_flt(char **args, int *cur_arg, struct proxy *px,
                     struct flt_conf *fconf, char **err, void *private)
 {
-  printf("hrrrr\n");
-	/* struct flt_conf *fc, *back; */
-
-	/* list_for_each_entry_safe(fc, back, &px->filter_configs, list) { */
-	/* 	if (fc->id == http_comp_flt_id) { */
-	/* 		memprintf(err, "%s: Proxy supports only one compression filter\n", px->id); */
-	/* 		return -1; */
-	/* 	} */
-	/* } */
-
 	fconf->id   = http_rescap_flt_id;
 	fconf->conf = NULL;
 	fconf->ops  = &rescap_ops;
