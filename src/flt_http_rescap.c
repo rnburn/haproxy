@@ -96,6 +96,10 @@ rescap_http_headers(struct stream *s, struct filter *filter, struct http_msg *ms
 
   // Allocate a buffer to hold the captured response and
   // configure the filter to intercept the response data
+  // 
+  // This is incomplete as we would also need to handle
+  // http2 and chunked http1, but we'll keep simple for
+  // now.
   printf("rescap content-length: %llu\n", h1m.curr_len);
   st->response_data = calloc(1, h1m.curr_len);
   st->content_length = h1m.curr_len;
